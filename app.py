@@ -55,7 +55,10 @@ transform = transforms.Compose([
 # 🔹 Frontend route
 @app.route("/")
 def home():
-    return render_template("index.html")
+    try:
+        return render_template("index.html")
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
 # 🔹 Prediction API
 @app.route("/predict", methods=["POST"])
