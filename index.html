@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DeepScan · Deepfake Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --accent: #7c6dfa;
+    --accent2: #fa6d9a;
+    --real: #4ade80;
+    --fake: #f87171;
+    --text: #e8e8f0;
+    --muted: #6b6b8a;
+    --card: #0f0f18;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  /* Ambient background blobs */
+  body::before {
+    content: '';
+    position: fixed;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(124,109,250,0.08) 0%, transparent 70%);
+    top: -100px; left: -100px;
+    pointer-events: none;
+    animation: drift 12s ease-in-out infinite alternate;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(250,109,154,0.06) 0%, transparent 70%);
+    bottom: -100px; right: -100px;
+    pointer-events: none;
+    animation: drift 15s ease-in-out infinite alternate-reverse;
+  }
+
+  @keyframes drift { from { transform: translate(0,0); } to { transform: translate(40px, 30px); } }
+
+  /* Header */
+  header {
+    width: 100%;
+    max-width: 780px;
+    padding: 52px 24px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+
+  .logo-text {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .tagline {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding-left: 48px;
+  }
+
+  /* Main card */
+  main {
+    width: 100%;
+    max-width: 780px;
+    padding: 32px 24px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    animation: fadeUp 0.6s 0.1s ease both;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: 20px;
+    background: var(--card);
+    padding: 48px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(124,109,250,0.04);
+  }
+
+  .upload-zone input[type="file"] {
+    position: absolute; inset: 0;
+    opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+
+  .upload-icon {
+    width: 64px; height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(124,109,250,0.15), rgba(250,109,154,0.1));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    transition: transform 0.2s;
+  }
+
+  .upload-zone:hover .upload-icon { transform: scale(1.05) translateY(-2px); }
+
+  .upload-label {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .upload-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* Preview */
+  .preview-wrap {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .preview-wrap.visible { display: flex; }
+
+  .preview-img-box {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1.5px solid var(--border);
+    max-width: 360px;
+    width: 100%;
+  }
+
+  .preview-img-box img {
+    width: 100%;
+    display: block;
+    max-height: 320px;
+    object-fit: cover;
+  }
+
+  .preview-badge {
+    position: absolute;
+    top: 12px; right: 12px;
+    background: rgba(10,10,15,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Analyse button */
+  .btn-analyse {
+    background: linear-gradient(135deg, var(--accent), #9b6dfa);
+    border: none;
+    border-radius: 14px;
+    color: #fff;
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 16px 40px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+    box-shadow: 0 4px 24px rgba(124,109,250,0.3);
+    letter-spacing: 0.02em;
+  }
+
+  .btn-analyse:hover { opacity: 0.92; transform: translateY(-1px); box-shadow: 0 6px 32px rgba(124,109,250,0.4); }
+  .btn-analyse:active { transform: translateY(0); }
+  .btn-analyse:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .btn-reset {
+    background: transparent;
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    color: var(--muted);
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 15px 24px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .btn-reset:hover { border-color: var(--muted); color: var(--text); }
+
+  /* Result card */
+  .result-card {
+    display: none;
+    border-radius: 20px;
+    padding: 28px 32px;
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    flex-direction: column;
+    gap: 20px;
+    animation: fadeUp 0.4s ease both;
+  }
+
+  .result-card.visible { display: flex; }
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .result-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 12px currentColor;
+  }
+
+  .result-dot.real { color: var(--real); background: var(--real); }
+  .result-dot.fake { color: var(--fake); background: var(--fake); }
+
+  .result-verdict {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  .result-verdict.real { color: var(--real); }
+  .result-verdict.fake { color: var(--fake); }
+
+  .result-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  /* Confidence bar */
+  .conf-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .conf-track {
+    height: 6px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+
+  .conf-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+    width: 0%;
+  }
+
+  .conf-fill.real { background: linear-gradient(90deg, #22c55e, #4ade80); }
+  .conf-fill.fake { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .stat-box {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+  }
+
+  .stat-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  /* Loading spinner */
+  .spinner {
+    display: none;
+    width: 20px; height: 20px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 8px;
+  }
+
+  .btn-analyse.loading .spinner { display: inline-block; }
+  .btn-analyse.loading .btn-label { opacity: 0.7; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Error */
+  .error-msg {
+    display: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--fake);
+    background: rgba(248,113,113,0.08);
+    border: 1px solid rgba(248,113,113,0.2);
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .error-msg.visible { display: block; }
+
+  /* Server status */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 0 24px 24px;
+    max-width: 780px;
+    width: 100%;
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .status-dot.online { background: var(--real); box-shadow: 0 0 6px var(--real); animation: pulse 2s infinite; }
+  .status-dot.offline { background: var(--fake); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-row">
+    <div class="logo-icon">🔍</div>
+    <span class="logo-text">DeepScan</span>
+  </div>
+  <p class="tagline">CNN-based deepfake image detection</p>
+</header>
+
+<main>
+
+  <!-- Upload zone (shown first) -->
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept="image/*" />
+    <div class="upload-icon">🖼️</div>
+    <div class="upload-label">Drop an image or click to browse</div>
+    <div class="upload-sub">JPG, PNG, WEBP supported</div>
+  </div>
+
+  <!-- Preview + buttons (shown after file selected) -->
+  <div class="preview-wrap" id="previewWrap">
+    <div class="preview-img-box">
+      <img id="previewImg" src="" alt="Preview" />
+      <div class="preview-badge" id="previewBadge">ready to analyse</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-analyse" id="analyseBtn" onclick="analyse()">
+        <div class="spinner"></div>
+        <span class="btn-label">Analyse Image</span>
+      </button>
+      <button class="btn-reset" onclick="reset()">Reset</button>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- Result card -->
+  <div class="result-card" id="resultCard">
+    <div class="result-header">
+      <div class="result-dot" id="resultDot"></div>
+      <div class="result-verdict" id="resultVerdict"></div>
+      <div class="result-sub" id="resultSub"></div>
+    </div>
+
+    <div>
+      <div class="conf-label">
+        <span>Confidence</span>
+        <span id="confValue"></span>
+      </div>
+      <div class="conf-track">
+        <div class="conf-fill" id="confFill"></div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-label">Raw Score</div>
+        <div class="stat-value" id="rawScore">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Verdict</div>
+        <div class="stat-value" id="statVerdict">—</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div class="status-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span id="statusText">Checking server...</span>
+</div>
+
+<script>
+  const API = 'http://localhost:5050';
+  let selectedFile = null;
+
+  // ── Server health check ────────────────────────────────────────────────────
+  async function checkHealth() {
+    try {
+      const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(2000) });
+      const d = await r.json();
+      document.getElementById('statusDot').className = 'status-dot online';
+      document.getElementById('statusText').textContent = `Server online · ${d.device}`;
+    } catch {
+      document.getElementById('statusDot').className = 'status-dot offline';
+      document.getElementById('statusText').textContent = 'Server offline — run: python app.py';
+    }
+  }
+
+  checkHealth();
+  setInterval(checkHealth, 8000);
+
+  // ── Drag & drop ────────────────────────────────────────────────────────────
+  const zone = document.getElementById('uploadZone');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) handleFile(f);
+  });
+
+  document.getElementById('fileInput').addEventListener('change', e => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  // ── File selected ──────────────────────────────────────────────────────────
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      document.getElementById('previewImg').src = ev.target.result;
+      document.getElementById('previewBadge').textContent = file.name;
+      document.getElementById('uploadZone').style.display = 'none';
+      document.getElementById('previewWrap').classList.add('visible');
+      document.getElementById('resultCard').classList.remove('visible');
+      document.getElementById('errorMsg').classList.remove('visible');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ── Analyse ────────────────────────────────────────────────────────────────
+  async function analyse() {
+    if (!selectedFile) return;
+
+    const btn = document.getElementById('analyseBtn');
+    btn.classList.add('loading');
+    btn.disabled = true;
+    document.getElementById('resultCard').classList.remove('visible');
+    document.getElementById('errorMsg').classList.remove('visible');
+
+    const form = new FormData();
+    form.append('image', selectedFile);
+
+    try {
+      const r = await fetch(`${API}/predict`, { method: 'POST', body: form });
+      const d = await r.json();
+
+      if (d.error) throw new Error(d.error);
+
+      showResult(d);
+    } catch (err) {
+      const msg = document.getElementById('errorMsg');
+      msg.textContent = `⚠ ${err.message || 'Could not connect to server. Make sure app.py is running.'}`;
+      msg.classList.add('visible');
+    } finally {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+
+  // ── Show result ────────────────────────────────────────────────────────────
+  function showResult(data) {
+    const isReal = data.label === 'Real';
+    const cls = isReal ? 'real' : 'fake';
+
+    document.getElementById('resultDot').className = `result-dot ${cls}`;
+    document.getElementById('resultVerdict').className = `result-verdict ${cls}`;
+    document.getElementById('resultVerdict').textContent = data.label;
+    document.getElementById('resultSub').textContent = `score ${data.raw_score}`;
+
+    document.getElementById('confValue').textContent = `${data.confidence}%`;
+    const fill = document.getElementById('confFill');
+    fill.className = `conf-fill ${cls}`;
+    setTimeout(() => { fill.style.width = `${data.confidence}%`; }, 50);
+
+    document.getElementById('rawScore').textContent = data.raw_score;
+    document.getElementById('statVerdict').textContent = data.label;
+    document.getElementById('statVerdict').style.color = isReal ? 'var(--real)' : 'var(--fake)';
+
+    document.getElementById('resultCard').classList.add('visible');
+  }
+
+  // ── Reset ──────────────────────────────────────────────────────────────────
+  function reset() {
+    selectedFile = null;
+    document.getElementById('fileInput').value = '';
+    document.getElementById('previewWrap').classList.remove('visible');
+    document.getElementById('resultCard').classList.remove('visible');
+    document.getElementById('errorMsg').classList.remove('visible');
+    document.getElementById('uploadZone').style.display = '';
+    document.getElementById('confFill').style.width = '0%';
+  }
+</script>
+</body>
+</html>
