@@ -1,5 +1,5 @@
-flask
+Flask
+flask-cors
 torch
 torchvision
-numpy
 pillow
